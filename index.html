@@ -305,12 +305,12 @@ async function workerRoundTrip(){
 }
 async function testFetchFeatures(){
     const f=[];
-    try{if(new Request("https://x.test",{keepalive:true})) f.push("keepalive");}catch(e){}
-    try{if(new Request("https://x.test",{priority:"high"})) f.push("priority hints");}catch(e){}
+    try{if(new Request("https://www.google.com",{keepalive:true})) f.push("keepalive");}catch(e){}
+    try{if(new Request("https://www.google.com",{priority:"high"})) f.push("priority hints");}catch(e){}
     try{if(new Response(new ReadableStream())) f.push("streaming body");}catch(e){}
     try{const r=new Response("x");if(r.body instanceof ReadableStream) f.push("body as ReadableStream");}catch(e){}
     try{if(typeof Request.prototype.signal!=="undefined") f.push("abort signal");}catch(e){}
-    try{const r=new Request("https://x.test",{mode:"no-cors"});if(r.mode==="no-cors") f.push("no-cors mode");}catch(e){}
+    try{const r=new Request("https://www.google.com",{mode:"no-cors"});if(r.mode==="no-cors") f.push("no-cors mode");}catch(e){}
     return f.length?f.join(", "):"None detected";
 }
 function jsFeatures(){
