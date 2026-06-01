@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Oh no!</title>
+<title>Browser checks</title>
 <style>
 *{box-sizing:border-box;}
 body{background:#0d0d0d;color:#aaa;margin:0;padding:16px;}
@@ -24,7 +24,8 @@ document.addEventListener("click", () => {
     sound.volume = 0.3;
     sound.play();
 });
-</script><body>
+</script>
+<body>
 <pre id="out"></pre>
 <script>
 const out=document.getElementById("out");
@@ -32,7 +33,7 @@ let _rid=0;
 function mkid(){return "r"+(++_rid);}
 function autoClass(s){
     const l=s.toLowerCase().trim();
-    if(["true","granted","yes","likely","passed","read/write ok","reachable","available","available (no prompt)","available (no prompt needed)","detected","detected (plugin)","detected (activex)","supported","enabled","ok","active — "].some(x=>l===x||l.startsWith(x))) return "t";
+    if(["true","granted","yes","likely","passed","read/write ok","reachable","available","available (no prompt)","available (no prompt needed)","detected","detected (plugin)","detected (activex)","supported","enabled","ok","active - "].some(x=>l===x||l.startsWith(x))) return "t";
     if(["false","denied","no","unlikely","unavailable","blocked","blocked/failed","failed","not detected","none detected","not supported","disabled","error","missing","iframe"].some(x=>l===x||l.startsWith(x))) return "f";
     if(["prompt","unspecified","timeout","partial","low","unknown","n/a","none","empty"].some(x=>l===x||l.startsWith(x))) return "w";
     return "";
@@ -777,7 +778,7 @@ async function run(){
     const wp=new Image();wp.onload=wp.onerror=()=>resolve(webpId,wp.height===2);
     wp.src="data:image/webp;base64,UklGRjoAAABXRUJQVlA4IC4AAACyAgCdASoCAAIALmk0mk0iIiIiIgBoSygABc6WWgAA/veff/0PP8bA//LwYAAA";
     const av=new Image();av.onload=av.onerror=()=>resolve(avifId,av.height===2);
-av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAABcAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQAMAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAAB9tZGF0EgAKCBgABogQEDQgmgUI/ikSBf/kOhA=";
+    av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAABcAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQAMAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAAB9tZGF0EgAKCBgABogQEDQgmgUI/ikSBf/kOhA=";
     const ttsId=probeRow("TTS Voices");
     if(window.speechSynthesis){
         const loadV=()=>{const v=window.speechSynthesis.getVoices();if(v.length) resolve(ttsId,v.length,"");};
@@ -794,12 +795,12 @@ av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADyb
     row("Font Count",detectedFonts.length,"");
     if(navigator.plugins&&navigator.plugins.length){
         row("Plugins Count",navigator.plugins.length,"");
-        for(const p of navigator.plugins) subrow(p.name,(p.description||p.filename||"—").slice(0,80),"");
+        for(const p of navigator.plugins) subrow(p.name,(p.description||p.filename||"-").slice(0,80),"");
     }else row("Plugins","None detected");
     const devCountId=probeRow("Media Devices Count");
     navigator.mediaDevices.enumerateDevices().then(devices=>{
         resolve(devCountId,devices.length,"");
-        devices.forEach((d,i)=>subrow("Device "+(i+1),d.kind+" — "+(d.label||"Hidden"),""));
+        devices.forEach((d,i)=>subrow("Device "+(i+1),d.kind+" - "+(d.label||"Hidden"),""));
     }).catch(()=>resolve(devCountId,"Unavailable","f"));
     section("Network");
     const ni=networkInfo();
@@ -829,9 +830,9 @@ av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADyb
                     const type=isLocal?"Local/Private":ip.includes(":")?"IPv6 Public":"IPv4 Public";
                     resolve(rtcSlots[i],ip+" ["+type+"]",isLocal?"w":"f");
                 });
-                for(let i=ips.length;i<rtcSlots.length;i++) resolve(rtcSlots[i],"—","d");
+                for(let i=ips.length;i<rtcSlots.length;i++) resolve(rtcSlots[i],"-","d");
                 const hasPublicV4=ips.some(ip=>!ip.includes(":")&&!/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.)/i.test(ip)&&ip!=="0.0.0.0");
-                resolve(leakId,hasPublicV4?"HIGH — Public IPv4 exposed":"Low (local/IPv6 only)",hasPublicV4?"f":"w");
+                resolve(leakId,hasPublicV4?"HIGH - Public IPv4 exposed":"Low (local only)",hasPublicV4?"f":"w");
             }else{
                 rtcSlots.forEach(id=>resolve(id,"None gathered","w"));
                 resolve(leakId,"WebRTC possibly blocked","w");
@@ -878,26 +879,26 @@ av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADyb
     }else{[batLvlId,batChgId,batChgTId,batDisId].forEach(id=>resolve(id,"Unavailable","f"));}
     section("Network Request Probes");
     const netProbes = [
-        ["Cloudflare Trace", "https://1.1.1.1/cdn-cgi/trace"],
-        ["Cloudflare DNS (DoH)", "https://cloudflare-dns.com/dns-query?name=example.com"],
-        ["Google DNS (DoH)", "https://dns.google/resolve?name=example.com"],
-        ["Cloudflare CDN (cdnjs)", "https://cdnjs.cloudflare.com/ajax/libs/purplecoat/1.0.0/purplecoat.min.js"],
-        ["Google CDN", "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"],
-        ["jsDelivr", "https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.global.prod.js"],
-        ["unpkg", "https://unpkg.com/react@18.2.0/umd/react.production.min.js"],
-        ["Microsoft Azure CDN", "https://ajax.aspnetcdn.com/ajax/jQuery/jquery-3.7.1.min.js"],
-        ["BunnyCDN", "https://bunny.net/favicon.ico"],
-        ["Firebase (gstatic)", "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"],
-        ["Supabase CDN", "https://cdn.supabase.com/js/v2/index.js"],
-        ["AWS CloudFront", "https://d1.awsstatic.com/marketplace/sc-logo-sm.png"],
-        ["Cloudinary", "https://res.cloudinary.com/demo/image/upload/sample.jpg"],
-        ["Google Analytics", "https://www.google-analytics.com/analytics.js"],
-        ["Google Tag Manager", "https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXX"],
-        ["Mixpanel", "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"],
-        ["Amplitude", "https://cdn.amplitude.com/libs/amplitude-8.21.4-min.gz.js"],
-        ["Stripe JS", "https://js.stripe.com/v3/"],
-        ["Sentry", "https://browser.sentry-cdn.com/7.93.0/bundle.min.js"],
-        ["Intercom", "https://widget.intercom.io/widget/XXXXXX"]
+        ["Cloudflare Trace","https://1.1.1.1/cdn-cgi/trace"],
+        ["Cloudflare DNS (DoH)","https://cloudflare-dns.com/dns-query?name=kaeui.com"],
+        ["Google DNS (DoH)","https://dns.google/resolve?name=kaeui.com"],
+        ["Cloudflare CDN (cdnjs)","https://cdnjs.cloudflare.com/ajax/libs/purplecoat/1.0.0/purplecoat.min.js"],
+        ["Google CDN","https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"],
+        ["jsDelivr","https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.global.prod.js"],
+        ["unpkg","https://unpkg.com/react@18.2.0/umd/react.production.min.js"],
+        ["Microsoft Azure CDN","https://ajax.aspnetcdn.com/ajax/jQuery/jquery-3.7.1.min.js"],
+        ["BunnyCDN","https://bunny.net/favicon.ico"],
+        ["Firebase (gstatic)","https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"],
+        ["Supabase CDN","https://cdn.supabase.com/js/v2/index.js"],
+        ["AWS CloudFront","https://d1.awsstatic.com/marketplace/sc-logo-sm.png"],
+        ["Cloudinary","https://res.cloudinary.com/demo/image/upload/sample.jpg"],
+        ["Google Analytics","https://www.google-analytics.com/analytics.js"],
+        ["Google Tag Manager","https://www.googletagmanager.com/gtm.js?id=GTM-123456"],
+        ["Mixpanel","https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"],
+        ["Amplitude","https://cdn.amplitude.com/libs/amplitude-8.21.4-min.gz.js"],
+        ["Stripe JS","https://js.stripe.com/v3/"],
+        ["Sentry","https://browser.sentry-cdn.com/7.93.0/bundle.min.js"],
+        ["Intercom","https://widget.intercom.io/widget/123456"]
     ];
     const netIds=netProbes.map(([name])=>probeRow(name));
     netProbes.forEach(([,url],i)=>{
@@ -930,20 +931,20 @@ av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADyb
         adResults.push(bh);
     }
     const adFetchList = [
-        { url: "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", name: "Google AdSense" },
-        { url: "https://securepubads.g.doubleclick.net/tag/js/gpt.js", name: "DoubleClick GPT" },
-        { url: "https://www.googletagservices.com/tag/js/gpt.js", name: "Google Tag Services" },
-        { url: "https://pagead2.googlesyndication.com/pagead/css/adblock.css", name: "AdSense CSS" },
-        { url: "https://connect.facebook.net/en_US/fbevents.js", name: "Facebook Pixel" },
-        { url: "https://static.ads-twitter.com/uwt.js", name: "X (Twitter) Ads" },
-        { url: "https://analytics.tiktok.com/i18n/pixel/sdk.js", name: "TikTok Pixel" },
-        { url: "https://snap.licdn.com/li.lms-analytics/insight.min.js", name: "LinkedIn Insight" },
-        { url: "https://cdn.taboola.com/libtrc/unip/loader.js", name: "Taboola" },
-        { url: "https://widgets.outbrain.com/outbrain.js", name: "Outbrain" },
-        { url: "https://static.criteo.net/js/ld/ld.js", name: "Criteo" },
-        { url: "https://s.amazon-adsystem.com/aax2/apstag.js", name: "Amazon Ads" },
-        { url: "https://z.moatads.com/moatad.js", name: "Moat Ads" },
-        { url: "https://pixel.advertising.com/favicon.ico", name: "Advertising.com" }
+        {url:"https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",name:"Google AdSense"},
+        {url:"https://securepubads.g.doubleclick.net/tag/js/gpt.js",name:"DoubleClick GPT"},
+        {url:"https://www.googletagservices.com/tag/js/gpt.js",name:"Google Tag Services"},
+        {url:"https://pagead2.googlesyndication.com/pagead/css/adblock.css",name:"AdSense CSS"},
+        {url:"https://connect.facebook.net/en_US/fbevents.js",name:"Facebook Pixel"},
+        {url:"https://static.ads-twitter.com/uwt.js",name:"X (Twitter) Ads"},
+        {url:"https://analytics.tiktok.com/i18n/pixel/sdk.js",name:"TikTok Pixel"},
+        {url:"https://snap.licdn.com/li.lms-analytics/insight.min.js",name:"LinkedIn Insight"},
+        {url:"https://cdn.taboola.com/libtrc/unip/loader.js",name:"Taboola"},
+        {url:"https://widgets.outbrain.com/outbrain.js",name:"Outbrain"},
+        {url:"https://static.criteo.net/js/ld/ld.js",name:"Criteo"},
+        {url:"https://s.amazon-adsystem.com/aax2/apstag.js",name:"Amazon Ads"},
+        {url:"https://z.moatads.com/moatad.js",name:"Moat Ads"},
+        {url:"https://pixel.advertising.com/favicon.ico",name:"Advertising.com"}
     ];
     const adFetchIds=adFetchList.map(({name})=>probeRow(name));
     const adFetchPromises=adFetchList.map(async({url},i)=>{
@@ -1024,7 +1025,7 @@ av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADyb
     section("Media & Peripheral Access");
     const camId=probeRow("Camera / Microphone");
     navigator.mediaDevices.getUserMedia({video:true,audio:true})
-        .then(stream=>{resolve(camId,"Granted","t");stream.getTracks().forEach(t=>{subrow("Track",t.kind+" — "+t.label,"");t.stop();});})
+        .then(stream=>{resolve(camId,"Granted","t");stream.getTracks().forEach(t=>{subrow("Track",t.kind+" - "+t.label,"");t.stop();});})
         .catch(err=>resolve(camId,err.message,"f"));
     const midiId=probeRow("MIDI Access");
     if(navigator.requestMIDIAccess){
