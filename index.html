@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oh no!</title>
+<style>
+*{box-sizing:border-box;}
+body{background:#0d0d0d;color:#aaa;margin:0;padding:16px;}
+pre{font-family:'Courier New',monospace;font-size:13px;line-height:1.7;white-space:pre-wrap;margin:0;}
+.t{color:#50fa7b;}.f{color:#ff5555;}.w{color:#ffb86c;}.s{color:#8be9fd;}.d{color:#6272a4;}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-6px);}to{opacity:1;transform:translateX(0);}}
+@keyframes verdictPop{0%{opacity:0;letter-spacing:4px;}60%{opacity:1;letter-spacing:-1px;}100%{opacity:1;letter-spacing:normal;}}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.25;}}
+.ani{animation:fadeIn 0.25s ease forwards;}
+.vani{animation:verdictPop 0.55s ease forwards;}
+.blink{animation:blink 1.1s infinite;}
+</style>
+</head>
+<audio id="clickSound" src="/static/click.ogg" preload="auto"></audio>
+<script>
+document.addEventListener("click", () => {
+    const sound = new Audio("/static/click.ogg");
+    sound.volume = 0.3;
+    sound.play();
+});
+</script><body>
+<pre id="out"></pre>
+<script>
+const out=document.getElementById("out");
+let _rid=0;
+function mkid(){return "r"+(++_rid);}
+function autoClass(s){
+    const l=s.toLowerCase().trim();
+    if(["true","granted","yes","likely","passed","read/write ok","reachable","available","available (no prompt)","available (no prompt needed)","detected","detected (plugin)","detected (activex)","supported","enabled","ok","active — "].some(x=>l===x||l.startsWith(x))) return "t";
+    if(["false","denied","no","unlikely","unavailable","blocked","blocked/failed","failed","not detected","none detected","not supported","disabled","error","missing","iframe"].some(x=>l===x||l.startsWith(x))) return "f";
+    if(["prompt","unspecified","timeout","partial","low","unknown","n/a","none","empty"].some(x=>l===x||l.startsWith(x))) return "w";
+    return "";
+}
+function section(name){out.innerHTML+=`\n<span class="s">${name}:</span>`;}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function row(label,value,cls){
+    const id=mkid();
+    if(value!==undefined){
+        const s=String(value);
+        const c=cls!==undefined?cls:autoClass(s);
+        out.innerHTML+=`\n  * ${esc(label)}: <span id="${id}" class="${c}">${esc(s)}</span>`;
+    }else{
+        out.innerHTML+=`\n  * ${esc(label)}: <span id="${id}" class="d blink">…</span>`;
+    }
+    return id;
+}
+function subrow(label,value,cls){
+    const id=mkid();
+    if(value!==undefined){
+        const s=String(value);
+        const c=cls!==undefined?cls:autoClass(s);
+        out.innerHTML+=`\n      * ${esc(label)}: <span id="${id}" class="${c}">${esc(s)}</span>`;
+    }else{
+        out.innerHTML+=`\n      * ${esc(label)}: <span id="${id}" class="d blink">…</span>`;
+    }
+    return id;
+}
+function resolve(id,value,cls,verdict){
+    const el=document.getElementById(id);
+    if(!el) return;
+    const s=String(value);
+    const c=cls!==undefined?cls:autoClass(s);
+    el.className=c+(verdict?" vani":" ani");
+    el.textContent=s;
+}
+function probeRow(label){
+    const id=mkid();
+    out.innerHTML+=`\n  * ${esc(label)}: <span id="${id}" class="d blink">…</span>`;
+    return id;
+}
+async function probeURL(url,timeout){
+    timeout=timeout||4000;
+    try{
+        const ctrl=new AbortController();
+        const t=setTimeout(()=>ctrl.abort(),timeout);
+        await fetch(url,{method:"HEAD",mode:"no-cors",signal:ctrl.signal,cache:"no-store"});
+        clearTimeout(t);
+        return "Reachable";
+    }catch(e){return e.name==="AbortError"?"Timeout":"Blocked/Failed";}
+}
+async function getWebRTCIPs(){
+    return new Promise(res=>{
+        const ips=new Set();let done=false;
+        const finish=()=>{if(!done){done=true;res([...ips]);}};
+        try{
+            const pc=new RTCPeerConnection({iceServers:[
+                {urls:"stun:stun.l.google.com:19302"},
+                {urls:"stun:stun1.l.google.com:19302"},
+                {urls:"stun:stun.cloudflare.com:3478"}
+            ]});
+            pc.createDataChannel("x");
+            pc.onicecandidate=e=>{
+                if(!e||!e.candidate){pc.close();finish();return;}
+                const m=e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+|(?:[a-f0-9]{1,4}:){2,}[a-f0-9]{1,4})/gi);
+                if(m) m.forEach(ip=>{if(ip!=="0.0.0.0"&&!ip.startsWith("0.")) ips.add(ip);});
+            };
+            pc.createOffer().then(o=>pc.setLocalDescription(o));
+            setTimeout(()=>{try{pc.close();}catch(e2){}finish();},6000);
+        }catch(e){finish();}
+    });
+}
+async function audioFingerprint(){
+    try{
+        const AC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+        if(!AC) return "Unavailable";
+        const ctx=new AC(1,44100,44100);
+        const osc=ctx.createOscillator(),comp=ctx.createDynamicsCompressor();
+        osc.type="triangle";
+        osc.frequency.setValueAtTime(10000,ctx.currentTime);
+        comp.threshold.setValueAtTime(-50,ctx.currentTime);
+        comp.knee.setValueAtTime(40,ctx.currentTime);
+        comp.ratio.setValueAtTime(12,ctx.currentTime);
+        comp.attack.setValueAtTime(0,ctx.currentTime);
+        comp.release.setValueAtTime(0.25,ctx.currentTime);
+        osc.connect(comp);comp.connect(ctx.destination);osc.start(0);
+        const buf=await ctx.startRendering();
+        const data=buf.getChannelData(0);
+        let sum=0;for(let i=4500;i<5000;i++) sum+=Math.abs(data[i]);
+        return sum.toString().slice(0,18);
+    }catch(e){return "Unavailable";}
+}
+function testLocalStorage(){
+    try{const k="__ls_"+Date.now(),v="v"+Math.random().toString(36).slice(2);localStorage.setItem(k,v);const r=localStorage.getItem(k);localStorage.removeItem(k);return r===v?"Read/Write OK":"Mismatch";}catch(e){return "Blocked";}
+}
+function testSessionStorage(){
+    try{const k="__ss_"+Date.now(),v="v"+Math.random().toString(36).slice(2);sessionStorage.setItem(k,v);const r=sessionStorage.getItem(k);sessionStorage.removeItem(k);return r===v?"Read/Write OK":"Mismatch";}catch(e){return "Blocked";}
+}
+function testCookies(){
+    try{const k="__ck_"+Date.now(),v="v"+Math.random().toString(36).slice(2);document.cookie=k+"="+v+"; path=/; SameSite=Strict";const ok=document.cookie.split(";").some(c=>c.trim()===k+"="+v);document.cookie=k+"=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";return ok?"Read/Write OK":"Write failed";}catch(e){return "Blocked";}
+}
+async function testIndexedDB(){
+    return new Promise(res=>{
+        try{
+            const req=indexedDB.open("__idbtest__",1);
+            req.onupgradeneeded=e=>e.target.result.createObjectStore("t");
+            req.onsuccess=e=>{
+                const db=e.target.result;
+                try{
+                    const val=Math.random().toString(36).slice(2);
+                    const tx=db.transaction("t","readwrite");
+                    const put=tx.objectStore("t").put(val,"k");
+                    put.onsuccess=()=>{
+                        const get=db.transaction("t").objectStore("t").get("k");
+                        get.onsuccess=()=>{db.close();try{indexedDB.deleteDatabase("__idbtest__");}catch(e2){}res(get.result===val?"Read/Write OK":"Mismatch");};
+                        get.onerror=()=>res("Read failed");
+                    };
+                    put.onerror=()=>res("Write failed");
+                }catch(e2){res("TX Error");}
+            };
+            req.onerror=()=>res("Open failed");
+            setTimeout(()=>res("Timeout"),3000);
+        }catch(e){res("Unavailable");}
+    });
+}
+async function testCacheStorage(){
+    try{const name="__ct__"+Date.now();const cache=await caches.open(name);const url="/__cp__"+Math.random().toString(36).slice(2);await cache.put(url,new Response("ok"));const hit=await cache.match(url);const text=hit?await hit.text():null;await caches.delete(name);return text==="ok"?"Read/Write OK":"Mismatch";}catch(e){return "Unavailable";}
+}
+function detectFlash(){
+    if(navigator.plugins&&navigator.plugins.length){for(let i=0;i<navigator.plugins.length;i++){const p=navigator.plugins[i];if((p.name&&p.name.toLowerCase().includes("flash"))||(p.description&&p.description.toLowerCase().includes("flash"))) return "Detected (plugin)";}}
+    try{new ActiveXObject("ShockwaveFlash.ShockwaveFlash");return "Detected (ActiveX)";}catch(e){}
+    return "Not detected";
+}
+function detectAutomation(){
+    const s=[];
+    if(navigator.webdriver) s.push("webdriver=true");
+    if(window.callPhantom||window._phantom) s.push("PhantomJS");
+    if(window.__nightmare) s.push("Nightmare");
+    if(window.domAutomation||window.domAutomationController) s.push("ChromeDriver DOM");
+    if(navigator.userAgent.includes("HeadlessChrome")) s.push("HeadlessChrome UA");
+    if(window.Cypress) s.push("Cypress");
+    if(window.playwright) s.push("Playwright");
+    if(typeof window.__selenium_unwrapped!=="undefined") s.push("Selenium");
+    if(typeof window.__webdriver_script_fn!=="undefined") s.push("WebDriver Script");
+    try{if(typeof document.$cdc_asdjflasutopfhvcZLmcfl_!=="undefined") s.push("CDP marker");}catch(e){}
+    if(navigator.userAgent.includes("PhantomJS")) s.push("PhantomJS UA");
+    if(window.Buffer) s.push("Node.js Buffer global");
+    if(window.__pwInitScripts) s.push("Playwright init");
+    return s.length?s.join(", "):"None detected";
+}
+function detectVM(){
+    const h=[];
+    if(screen.width===800&&screen.height===600) h.push("800x600 (VM default)");
+    if(screen.width===1024&&screen.height===768) h.push("1024x768 (VM common)");
+    if(navigator.hardwareConcurrency&&navigator.hardwareConcurrency<=2) h.push("Low CPU cores (≤2)");
+    if(navigator.deviceMemory&&navigator.deviceMemory<=1) h.push("Low RAM (≤1 GB)");
+    if(!navigator.plugins||navigator.plugins.length===0) h.push("No plugins (headless hint)");
+    return h.length?h.join(", "):"None";
+}
+function detectBrowserEngine(){
+    const ua=navigator.userAgent;
+    if(window.chrome&&!window.opr) return "Blink (Chrome/ium)";
+    if(typeof window.InstallTrigger!=="undefined") return "Gecko (Firefox)";
+    if(/^((?!chrome|android).)*safari/i.test(ua)) return "WebKit (Safari)";
+    if(typeof window.opera!=="undefined"||ua.includes("OPR")) return "Blink (Opera)";
+    if(ua.includes("Edg/")) return "Blink (Edge)";
+    if(typeof document.documentMode!=="undefined") return "Trident (IE)";
+    return "Unknown";
+}
+function cssSupports(prop,val){try{return CSS.supports(prop,val);}catch(e){return false;}}
+function mathFingerprint(){
+    const vals=[Math.acos(0.123456789),Math.acosh(1e308),Math.atan2(1e-310,1),Math.cbrt(-9e-323),Math.exp(-1e-290),Math.hypot(2,3,4),Math.log1p(1e-290),Math.pow(Math.PI,Math.E),Math.sinh(Math.PI),Math.tan(Math.PI/7)];
+    return vals.map(v=>v.toString().slice(0,8)).join("|");
+}
+function errorStackFormat(){
+    try{null.x;}catch(e){const s=e.stack||"";if(s.includes("@")) return "Firefox-style (@)";if(s.includes("at ")) return "Chrome-style (at)";return "Unknown";}
+    return "N/A";
+}
+function timingResolution(){
+    const t0=performance.now();let t1=t0;
+    while(t1===t0) t1=performance.now();
+    return ((t1-t0)*1000).toFixed(3)+" µs";
+}
+function canvasNoiseCheck(){
+    const c1=document.createElement("canvas"),c2=document.createElement("canvas");
+    [c1,c2].forEach(c=>{c.width=200;c.height=50;const x=c.getContext("2d");x.font="18px Arial";x.fillStyle="red";x.fillText("hello canvas noise",2,30);});
+    return c1.toDataURL()===c2.toDataURL()?"Consistent (no noise)":"Randomized (privacy mode)";
+}
+function emojiCanvasWidth(){
+    try{const c=document.createElement("canvas");const x=c.getContext("2d");x.font="32px serif";const w1=x.measureText("\uD83D\uDE00").width;const w2=x.measureText("A").width;return w1.toFixed(2)+" px (vs A="+w2.toFixed(2)+")";}catch(e){return "Unavailable";}
+}
+function domRectFingerprint(){
+    try{const d=document.createElement("div");d.style.cssText="position:fixed;top:0;left:0;width:100px;height:100px;";document.body.appendChild(d);const r=d.getBoundingClientRect();document.body.removeChild(d);return r.width.toFixed(4)+"x"+r.height.toFixed(4)+" top="+r.top.toFixed(4);}catch(e){return "Unavailable";}
+}
+async function wasmFeatures(){
+    const f=[];
+    try{if(typeof WebAssembly==="object") f.push("basic");}catch(e){}
+    try{if(WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,1,123,1,123,3,2,1,0,7,8,1,4,116,101,115,116,0,0,10,10,1,8,0,32,0,253,127,253,15,11]))) f.push("SIMD");}catch(e){}
+    try{if(typeof SharedArrayBuffer!=="undefined") f.push("threads/SAB");}catch(e){}
+    try{new WebAssembly.Tag({parameters:[]});f.push("exceptions");}catch(e){}
+    try{WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,4,4,1,111,0,0]));f.push("ref-types");}catch(e){}
+    return f.length?f.join(", "):"basic only";
+}
+async function detectMediaCodecs(){
+    if(!navigator.mediaCapabilities) return "API unavailable";
+    const tests=[
+        {type:"video",codec:'video/mp4; codecs="avc1.42E01E"',label:"H.264"},
+        {type:"video",codec:'video/webm; codecs="vp9"',label:"VP9"},
+        {type:"video",codec:'video/webm; codecs="vp8"',label:"VP8"},
+        {type:"video",codec:'video/mp4; codecs="av01.0.05M.08"',label:"AV1"},
+        {type:"video",codec:'video/mp4; codecs="hev1.1.6.L93.B0"',label:"H.265/HEVC"},
+        {type:"audio",codec:'audio/mp4; codecs="mp4a.40.2"',label:"AAC"},
+        {type:"audio",codec:'audio/webm; codecs="opus"',label:"Opus"},
+        {type:"audio",codec:"audio/flac",label:"FLAC"},
+        {type:"audio",codec:'audio/webm; codecs="vorbis"',label:"Vorbis"},
+    ];
+    const results=[];
+    for(const t of tests){
+        try{
+            const cfg=t.type==="video"
+                ?{type:"file",video:{contentType:t.codec,width:1280,height:720,bitrate:1e6,framerate:30}}
+                :{type:"file",audio:{contentType:t.codec,channels:2,bitrate:128000,samplerate:44100}};
+            const r=await navigator.mediaCapabilities.decodingInfo(cfg);
+            if(r.supported) results.push(t.label+(r.smooth?"":" (not smooth)"));
+        }catch(e){}
+    }
+    return results.length?results.join(", "):"None";
+}
+async function testSubtleCryptoAlgos(){
+    const results=[];
+    if(!window.crypto||!window.crypto.subtle) return "SubtleCrypto unavailable";
+    const tests=[
+        ["AES-GCM",()=>crypto.subtle.generateKey({name:"AES-GCM",length:256},false,["encrypt","decrypt"])],
+        ["AES-CBC",()=>crypto.subtle.generateKey({name:"AES-CBC",length:128},false,["encrypt","decrypt"])],
+        ["RSA-OAEP",()=>crypto.subtle.generateKey({name:"RSA-OAEP",modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},false,["encrypt","decrypt"])],
+        ["ECDH P-256",()=>crypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},false,["deriveKey"])],
+        ["ECDSA P-384",()=>crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-384"},false,["sign","verify"])],
+        ["Ed25519",()=>crypto.subtle.generateKey({name:"Ed25519"},false,["sign","verify"])],
+        ["X25519",()=>crypto.subtle.generateKey({name:"X25519"},false,["deriveKey"])],
+        ["SHA-256",()=>crypto.subtle.digest("SHA-256",new Uint8Array([1,2,3]))],
+        ["SHA-512",()=>crypto.subtle.digest("SHA-512",new Uint8Array([1,2,3]))],
+        ["HMAC",()=>crypto.subtle.generateKey({name:"HMAC",hash:"SHA-256"},false,["sign","verify"])],
+        ["HKDF",()=>crypto.subtle.generateKey({name:"HKDF"},false,["deriveKey","deriveBits"])],
+        ["PBKDF2",()=>crypto.subtle.generateKey({name:"PBKDF2"},false,["deriveKey","deriveBits"])],
+    ];
+    for(const [name,fn] of tests){
+        try{await fn();results.push(name);}catch(e){}
+    }
+    return results.length?results.join(", "):"None";
+}
+async function workerRoundTrip(){
+    return new Promise(res=>{
+        try{
+            const code=`self.onmessage=e=>{self.postMessage({pong:e.data.ping,ts:Date.now()});};`;
+            const blob=new Blob([code],{type:"application/javascript"});
+            const url=URL.createObjectURL(blob);
+            const w=new Worker(url);
+            const t0=performance.now();
+            w.onmessage=e=>{
+                const rtt=(performance.now()-t0).toFixed(2);
+                w.terminate();URL.revokeObjectURL(url);
+                res("OK, RTT "+rtt+" ms");
+            };
+            w.onerror=()=>res("Error");
+            w.postMessage({ping:Date.now()});
+            setTimeout(()=>res("Timeout"),3000);
+        }catch(e){res("Unavailable: "+e.message);}
+    });
+}
+async function testFetchFeatures(){
+    const f=[];
+    try{if(new Request("https://x.test",{keepalive:true})) f.push("keepalive");}catch(e){}
+    try{if(new Request("https://x.test",{priority:"high"})) f.push("priority hints");}catch(e){}
+    try{if(new Response(new ReadableStream())) f.push("streaming body");}catch(e){}
+    try{const r=new Response("x");if(r.body instanceof ReadableStream) f.push("body as ReadableStream");}catch(e){}
+    try{if(typeof Request.prototype.signal!=="undefined") f.push("abort signal");}catch(e){}
+    try{const r=new Request("https://x.test",{mode:"no-cors"});if(r.mode==="no-cors") f.push("no-cors mode");}catch(e){}
+    return f.length?f.join(", "):"None detected";
+}
+function jsFeatures(){
+    const f=[];
+    try{eval("class X{#p=1;get(){return this.#p}}");f.push("private fields");}catch(e){}
+    try{eval("class X{static{}}");f.push("static blocks");}catch(e){}
+    try{if(typeof BigInt!=="undefined"){BigInt(9007199254740991n);f.push("BigInt");}}catch(e){}
+    try{if(typeof WeakRef!=="undefined") f.push("WeakRef");}catch(e){}
+    try{if(typeof FinalizationRegistry!=="undefined") f.push("FinalizationRegistry");}catch(e){}
+    try{if(typeof Temporal!=="undefined") f.push("Temporal API");}catch(e){}
+    try{if([1,2,3].at(-1)===3) f.push("Array.at()");}catch(e){}
+    try{if(Object.hasOwn({a:1},"a")) f.push("Object.hasOwn()");}catch(e){}
+    try{new Error("x",{cause:"y"});f.push("Error.cause");}catch(e){}
+    try{if(typeof Promise.any==="function") f.push("Promise.any");}catch(e){}
+    try{if(typeof Promise.allSettled==="function") f.push("Promise.allSettled");}catch(e){}
+    try{eval("/(?<n>x)/");f.push("RegExp named groups");}catch(e){}
+    try{eval("/(?<=x)y/");f.push("RegExp lookbehind");}catch(e){}
+    try{eval("/./s");f.push("RegExp dotAll");}catch(e){}
+    try{eval("/\\\\p{L}/u");f.push("RegExp Unicode props");}catch(e){}
+    try{if(typeof ShadowRealm!=="undefined") f.push("ShadowRealm");}catch(e){}
+    try{if(typeof Intl.Segmenter!=="undefined") f.push("Intl.Segmenter");}catch(e){}
+    try{if(typeof Intl.DisplayNames!=="undefined") f.push("Intl.DisplayNames");}catch(e){}
+    try{if(typeof Intl.ListFormat!=="undefined") f.push("Intl.ListFormat");}catch(e){}
+    try{if(typeof Intl.RelativeTimeFormat!=="undefined") f.push("Intl.RelativeTimeFormat");}catch(e){}
+    try{if(typeof Intl.DurationFormat!=="undefined") f.push("Intl.DurationFormat");}catch(e){}
+    try{if(typeof Array.fromAsync==="function") f.push("Array.fromAsync()");}catch(e){}
+    try{if(typeof Iterator!=="undefined"&&typeof Iterator.prototype.map==="function") f.push("Iterator helpers");}catch(e){}
+    try{if(typeof DisposableStack!=="undefined") f.push("DisposableStack (using)");}catch(e){}
+    try{if(typeof Object.groupBy==="function") f.push("Object.groupBy()");}catch(e){}
+    try{if(typeof Map.groupBy==="function") f.push("Map.groupBy()");}catch(e){}
+    try{if(typeof Promise.withResolvers==="function") f.push("Promise.withResolvers()");}catch(e){}
+    try{if(typeof Float16Array!=="undefined") f.push("Float16Array");}catch(e){}
+    try{eval("({a:1}?.a)");f.push("optional chaining");}catch(e){}
+    try{eval("null??'x'");f.push("nullish coalescing");}catch(e){}
+    try{eval("let a=0;a??=1");f.push("logical assignment");}catch(e){}
+    return f;
+}
+function documentInfo(){
+    const d={};
+    d.inIframe=window.top!==window.self;
+    d.hasFocus=document.hasFocus();
+    d.visibilityState=document.visibilityState;
+    d.referrerPolicy=document.referrerPolicy||"(empty)";
+    d.characterSet=document.characterSet;
+    d.contentType=document.contentType;
+    d.compatMode=document.compatMode;
+    d.designMode=document.designMode;
+    d.readyState=document.readyState;
+    d.adoptedStyleSheets=!!document.adoptedStyleSheets;
+    d.timeline=!!document.timeline;
+    d.pictureInPicture=!!document.pictureInPictureEnabled;
+    d.userActivation=navigator.userActivation?.isActive??false;
+    d.stickyActivation=navigator.userActivation?.hasBeenActive??false;
+    d.pageFreeze="onfreeze" in document;
+    d.declarativeShadow=!!HTMLElement.prototype.attachShadow;
+    d.elementInternals=!!HTMLElement.prototype.attachInternals;
+    d.cspReporting=!!window.ReportingObserver;
+    d.documentDomain=document.domain||"(empty/locked)";
+    d.cookie3pcBlocked=!navigator.cookieEnabled;
+    return d;
+}
+function networkInfo(){
+    const n={};
+    n.hasConnectionAPI=!!navigator.connection;
+    if(navigator.connection){
+        n.effectiveType=navigator.connection.effectiveType;
+        n.type=navigator.connection.type||"Unknown";
+        n.downlink=navigator.connection.downlink+" Mbps";
+        n.downlinkMax=navigator.connection.downlinkMax?navigator.connection.downlinkMax+" Mbps":"N/A";
+        n.rtt=navigator.connection.rtt+" ms";
+        n.saveData=navigator.connection.saveData;
+    }
+    return n;
+}
+async function run(){
+    out.textContent="";
+    section("Browser & System");
+    row("User Agent",navigator.userAgent);
+    row("Platform",navigator.platform);
+    row("App Version",navigator.appVersion.slice(0,70));
+    row("Vendor",navigator.vendor||"Unknown");
+    row("Product",navigator.product||"Unknown");
+    row("Product Sub",navigator.productSub||"N/A");
+    row("Build ID",navigator.buildID||"N/A");
+    row("Engine",detectBrowserEngine());
+    row("Languages",navigator.languages.join(", "));
+    row("Do Not Track",navigator.doNotTrack||"Unspecified");
+    row("Global Privacy Control",navigator.globalPrivacyControl??false);
+    row("Cookies Enabled",navigator.cookieEnabled);
+    row("PDF Viewer",navigator.pdfViewerEnabled??"-");
+    row("Java Enabled",typeof navigator.javaEnabled==="function"?(navigator.javaEnabled()?"true":"false"):"unknown");
+    row("Flash Player",detectFlash());
+    row("Online",navigator.onLine);
+    row("Standalone (PWA)",navigator.standalone??false);
+    row("Automation Detected",detectAutomation());
+    row("VM Hints",detectVM());
+    row("Error Stack Format",errorStackFormat(),"");
+    row("Math Fingerprint",mathFingerprint(),"");
+    row("Timing Resolution",timingResolution(),"");
+    row("Canvas Noise",canvasNoiseCheck(),"");
+    row("Emoji Canvas Width",emojiCanvasWidth(),"");
+    row("DOMRect Fingerprint",domRectFingerprint(),"");
+    section("Hardware");
+    row("CPU Threads",navigator.hardwareConcurrency||"Unknown");
+    row("RAM",navigator.deviceMemory?navigator.deviceMemory+" GB":"Unknown");
+    row("Device Pixel Ratio",window.devicePixelRatio);
+    row("Touch Points",navigator.maxTouchPoints||0);
+    row("Pointer Type",window.matchMedia("(pointer:coarse)").matches?"coarse (touch)":"fine (mouse/stylus)");
+    row("Any Pointer Coarse",window.matchMedia("(any-pointer:coarse)").matches);
+    row("Hover",window.matchMedia("(hover:hover)").matches);
+    row("Any Hover",window.matchMedia("(any-hover:hover)").matches);
+    row("Multi-Monitor",screen.isExtended??false);
+    row("Keyboard API",!!navigator.keyboard);
+    row("Virtual Keyboard API",!!navigator.virtualKeyboard);
+    row("Ink API (stylus)",!!navigator.ink);
+    row("Gamepad API",!!navigator.getGamepads);
+    row("Window Controls Overlay",!!navigator.windowControlsOverlay);
+    section("Display");
+    row("Screen",screen.width+"x"+screen.height);
+    row("Available Screen",screen.availWidth+"x"+screen.availHeight);
+    row("Window Inner",window.innerWidth+"x"+window.innerHeight);
+    row("Window Outer",window.outerWidth+"x"+window.outerHeight);
+    row("Color Depth",screen.colorDepth+"bit");
+    row("Pixel Depth",screen.pixelDepth+"bit");
+    row("Orientation",screen.orientation?screen.orientation.type:"Unknown");
+    row("Color Gamut P3",window.matchMedia("(color-gamut:p3)").matches);
+    row("Color Gamut Rec2020",window.matchMedia("(color-gamut:rec2020)").matches);
+    row("HDR",window.matchMedia("(dynamic-range:high)").matches);
+    row("Forced Colors",window.matchMedia("(forced-colors:active)").matches);
+    section("CSS Features");
+    const cssTests=[
+        ["Width dvw",["width","100dvw"]],
+        [":has()",["selector(:has(a))",""]],
+        ["Container Queries",["container-type","inline-size"]],
+        ["Cascade Layers",["@layer",""]],
+        ["Nesting",["selector(&)",""]],
+        ["color-mix()",["color","color-mix(in srgb,red,blue)"]],
+        ["lch() color",["color","lch(50% 50 200)"]],
+        ["oklch() color",["color","oklch(50% 0.1 200)"]],
+        ["Subgrid",["grid-template-rows","subgrid"]],
+        [":focus-visible",["selector(:focus-visible)",""]],
+        ["Scroll Timeline",["scroll-timeline","--t block"]],
+        ["@starting-style",["@starting-style",""]],
+        ["@property",["syntax","'<color>'"]],
+        ["anchor-name",["anchor-name","--a"]],
+        ["text-wrap: balance",["text-wrap","balance"]],
+        ["overflow: clip",["overflow","clip"]],
+        ["aspect-ratio",["aspect-ratio","16/9"]],
+        ["gap (grid)",["gap","10px"]],
+        ["inset",["inset","0"]],
+        ["margin-inline",["margin-inline","auto"]],
+        ["logical props",["border-inline","1px solid red"]],
+        ["font-palette",["font-palette","normal"]],
+        ["hyphenate-character",["hyphenate-character","auto"]],
+        ["content-visibility",["content-visibility","auto"]],
+        ["will-change",["will-change","transform"]],
+        ["backdrop-filter",["backdrop-filter","blur(4px)"]],
+    ];
+    for(const [name,[p,v]] of cssTests) row(name,cssSupports(p,v));
+    section("Time & Locale");
+    row("Timezone",Intl.DateTimeFormat().resolvedOptions().timeZone);
+    row("Timezone Offset",new Date().getTimezoneOffset()+" min");
+    row("Current Time",new Date().toLocaleString());
+    row("Locale Numbers",(1234567.89).toLocaleString());
+    row("Locale Date",new Date().toLocaleDateString());
+    row("Calendar",Intl.DateTimeFormat().resolvedOptions().calendar);
+    row("Number System",Intl.DateTimeFormat().resolvedOptions().numberingSystem);
+    row("Hour Cycle",new Intl.DateTimeFormat([],{hour:"numeric"}).resolvedOptions().hourCycle||"Unknown");
+    try{row("RTL Locale",new Intl.Locale(navigator.language).textInfo?.direction==="rtl");}catch(e){}
+    try{row("Likely Script",new Intl.Locale(navigator.language).maximize().script||"Unknown","");}catch(e){}
+    section("Preferences");
+    row("Dark Mode",window.matchMedia("(prefers-color-scheme:dark)").matches);
+    row("Light Mode",window.matchMedia("(prefers-color-scheme:light)").matches);
+    row("Reduced Motion",window.matchMedia("(prefers-reduced-motion:reduce)").matches);
+    row("Reduced Transparency",window.matchMedia("(prefers-reduced-transparency:reduce)").matches);
+    row("High Contrast",window.matchMedia("(forced-colors:active)").matches);
+    row("Inverted Colors",window.matchMedia("(inverted-colors:inverted)").matches);
+    row("Save Data Mode",window.matchMedia("(prefers-reduced-data:reduce)").matches);
+    row("Contrast More",window.matchMedia("(prefers-contrast:more)").matches);
+    row("Contrast Less",window.matchMedia("(prefers-contrast:less)").matches);
+    section("Document & Frame");
+    const di=documentInfo();
+    row("In iframe",di.inIframe?"Yes (nested)":"No (top-level)",di.inIframe?"f":"t");
+    row("Has Focus",di.hasFocus);
+    row("Visibility State",di.visibilityState);
+    row("Referrer Policy",di.referrerPolicy,"");
+    row("Character Set",di.characterSet,"");
+    row("Content Type",di.contentType,"");
+    row("Compat Mode",di.compatMode,"");
+    row("Design Mode",di.designMode||"off","");
+    row("Ready State",di.readyState,"");
+    row("Adopted Stylesheets",di.adoptedStyleSheets);
+    row("Document Timeline",di.timeline);
+    row("PiP Enabled",di.pictureInPicture);
+    row("User Activation",di.userActivation);
+    row("Sticky Activation",di.stickyActivation);
+    row("Page Freeze Event",di.pageFreeze);
+    row("Declarative Shadow DOM",di.declarativeShadow);
+    row("ElementInternals",di.elementInternals);
+    row("ReportingObserver (CSP)",di.cspReporting);
+    row("Document Domain",di.documentDomain,"");
+    row("focusableAreas API",!!document.activeElement);
+    section("Security & Isolation");
+    row("crossOriginIsolated",!!window.crossOriginIsolated);
+    row("SharedArrayBuffer",typeof SharedArrayBuffer!=="undefined");
+    row("Atomics",typeof Atomics!=="undefined");
+    row("isSecureContext",!!window.isSecureContext);
+    row("SubtleCrypto",!!(window.crypto&&window.crypto.subtle));
+    row("Crypto.randomUUID",!!(window.crypto&&window.crypto.randomUUID));
+    row("Trusted Types",!!window.TrustedTypes);
+    row("Permissions Policy API",!!(document.featurePolicy||document.permissionsPolicy));
+    row("Speculation Rules",!!HTMLScriptElement.supports?.("speculationrules"));
+    row("Content Security Policy",!!document.querySelector("meta[http-equiv='Content-Security-Policy']"));
+    row("SameSite Cookie Default","Lax (modern browsers)","");
+    row("Sanitizer API",!!window.Sanitizer);
+    row("getStorageUpdates",!!navigator.locks);
+    row("Locks API",!!navigator.locks);
+    section("JavaScript Engine");
+    const jsf=jsFeatures();
+    row("Detected Features",jsf.length+" features","");
+    for(const f of jsf) subrow(f,"Supported","t");
+    section("Crypto Capabilities");
+    const cryptoId=probeRow("Supported Algorithms");
+    testSubtleCryptoAlgos().then(v=>resolve(cryptoId,v,""));
+    section("Worker Capabilities");
+    row("Worker API",!!window.Worker);
+    row("SharedWorker API",!!window.SharedWorker);
+    row("Service Worker",!!navigator.serviceWorker);
+    row("Background Sync",!!(navigator.serviceWorker&&window.SyncManager));
+    row("Background Fetch",!!(navigator.serviceWorker&&window.BackgroundFetchManager));
+    const workerRTId=probeRow("Worker Round-trip");
+    workerRoundTrip().then(v=>resolve(workerRTId,v,v.startsWith("OK")?"t":"f"));
+    section("Fetch Capabilities");
+    const fetchFeatId=probeRow("Fetch Features");
+    testFetchFeatures().then(v=>resolve(fetchFeatId,v,""));
+    row("Fetch API",!!window.fetch);
+    row("Request API",!!window.Request);
+    row("Response API",!!window.Response);
+    row("Headers API",!!window.Headers);
+    row("FormData streaming",!!window.FormData);
+    row("EventSource (SSE)",!!window.EventSource);
+    row("WebSocket",!!window.WebSocket);
+    row("XMLHttpRequest",!!window.XMLHttpRequest);
+    row("sendBeacon",!!navigator.sendBeacon);
+    section("Pointer & Input Events");
+    row("PointerEvent API",!!window.PointerEvent);
+    row("TouchEvent API",!!window.TouchEvent);
+    row("InputEvent API",!!window.InputEvent);
+    row("WheelEvent",!!window.WheelEvent);
+    row("DragEvent",!!window.DragEvent);
+    row("ClipboardEvent",!!window.ClipboardEvent);
+    row("CompositionEvent",!!window.CompositionEvent);
+    row("FocusEvent",!!window.FocusEvent);
+    row("KeyboardEvent.key",!!(window.KeyboardEvent&&"key" in KeyboardEvent.prototype));
+    row("KeyboardEvent.code",!!(window.KeyboardEvent&&"code" in KeyboardEvent.prototype));
+    row("Pointer Capture",!!(Element.prototype.setPointerCapture));
+    row("Pointer Lock",!!(document.requestPointerLock||document.mozRequestPointerLock));
+    section("WebAssembly Features");
+    const wasmId=probeRow("Supported Features");
+    wasmFeatures().then(v=>resolve(wasmId,v,""));
+    section("Media Codecs");
+    const codecId=probeRow("Video/Audio Codecs");
+    detectMediaCodecs().then(v=>resolve(codecId,v,""));
+    row("MediaCapabilities API",!!navigator.mediaCapabilities);
+    row("Media Source Extensions",!!window.MediaSource);
+    row("Encrypted Media (EME)",!!(window.MediaKeySystemAccess||navigator.requestMediaKeySystemAccess));
+    row("WebCodecs VideoDecoder",!!window.VideoDecoder);
+    row("WebCodecs VideoEncoder",!!window.VideoEncoder);
+    row("WebCodecs AudioDecoder",!!window.AudioDecoder);
+    row("AudioContext",!!(window.AudioContext||window.webkitAudioContext));
+    row("AudioWorklet",!!(window.AudioContext&&(()=>{try{return !!(new (window.AudioContext||window.webkitAudioContext)()).audioWorklet;}catch(e){return false;}})()));
+    row("MediaRecorder API",!!window.MediaRecorder);
+    row("ImageCapture API",!!window.ImageCapture);
+    row("Web MIDI",!!navigator.requestMIDIAccess);
+    section("APIs");
+    function sc(fn){try{return !!fn();}catch(e){return false;}}
+    const apis=[
+        ["WebAssembly",sc(()=>typeof WebAssembly==="object")],
+        ["WebSockets",sc(()=>!!window.WebSocket)],
+        ["WebRTC",sc(()=>!!window.RTCPeerConnection)],
+        ["WebWorkers",sc(()=>!!window.Worker)],
+        ["SharedWorkers",sc(()=>!!window.SharedWorker)],
+        ["Bluetooth API",sc(()=>!!navigator.bluetooth)],
+        ["USB API",sc(()=>!!navigator.usb)],
+        ["HID API",sc(()=>!!navigator.hid)],
+        ["Serial API",sc(()=>!!navigator.serial)],
+        ["NFC API",sc(()=>!!navigator.nfc)],
+        ["MIDI API",sc(()=>!!navigator.requestMIDIAccess)],
+        ["Share API",sc(()=>!!navigator.share)],
+        ["Fullscreen API",sc(()=>!!document.fullscreenEnabled)],
+        ["Pointer Lock",sc(()=>"pointerLockElement" in document)],
+        ["Page Visibility",sc(()=>"hidden" in document)],
+        ["Vibration API",sc(()=>!!navigator.vibrate)],
+        ["Gamepad API",sc(()=>!!navigator.getGamepads)],
+        ["Speech Synthesis",sc(()=>!!window.speechSynthesis)],
+        ["Speech Recognition",sc(()=>!!(window.SpeechRecognition||window.webkitSpeechRecognition))],
+        ["Payment Request",sc(()=>!!window.PaymentRequest)],
+        ["WebAuthn (PublicKeyCredential)",sc(()=>!!window.PublicKeyCredential)],
+        ["Credential Management",sc(()=>!!navigator.credentials)],
+        ["Wake Lock API",sc(()=>!!navigator.wakeLock)],
+        ["Screen Capture (getDisplayMedia)",sc(()=>!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia))],
+        ["EyeDropper API",sc(()=>!!window.EyeDropper)],
+        ["File System Access API",sc(()=>!!window.showOpenFilePicker)],
+        ["Contact Picker API",sc(()=>!!navigator.contacts)],
+        ["Barcode Detection API",sc(()=>!!window.BarcodeDetector)],
+        ["Text Detection API",sc(()=>!!window.TextDetector)],
+        ["Face Detection API",sc(()=>!!window.FaceDetector)],
+        ["Idle Detection API",sc(()=>!!window.IdleDetector)],
+        ["Compute Pressure API",sc(()=>!!navigator.computePressure)],
+        ["WebXR (VR/AR)",sc(()=>!!navigator.xr)],
+        ["View Transitions API",sc(()=>!!document.startViewTransition)],
+        ["Navigation API",sc(()=>!!window.navigation)],
+        ["Compression Streams",sc(()=>!!window.CompressionStream)],
+        ["Custom Elements",sc(()=>!!window.customElements)],
+        ["Web Animations API",sc(()=>!!Element.prototype.animate)],
+        ["ResizeObserver",sc(()=>!!window.ResizeObserver)],
+        ["IntersectionObserver v1",sc(()=>!!window.IntersectionObserver)],
+        ["IntersectionObserver v2",sc(()=>!!(window.IntersectionObserver&&window.IntersectionObserverEntry&&"isVisible" in window.IntersectionObserverEntry.prototype))],
+        ["MutationObserver",sc(()=>!!window.MutationObserver)],
+        ["BroadcastChannel",sc(()=>!!window.BroadcastChannel)],
+        ["ReadableStream (Streams API)",sc(()=>!!window.ReadableStream)],
+        ["TransformStream",sc(()=>!!window.TransformStream)],
+        ["WritableStream",sc(()=>!!window.WritableStream)],
+        ["AbortController",sc(()=>!!window.AbortController)],
+        ["structuredClone",sc(()=>!!window.structuredClone)],
+        ["CookieStore API",sc(()=>!!window.cookieStore)],
+        ["Document Picture-in-Picture",sc(()=>!!window.documentPictureInPicture)],
+        ["Scheduler.postTask",sc(()=>!!window.scheduler?.postTask)],
+        ["Popover API",sc(()=>!!HTMLElement.prototype.showPopover)],
+        ["CSS Houdini Paint Worklet",sc(()=>!!(window.CSS&&CSS.paintWorklet))],
+        ["CSS.registerProperty",sc(()=>!!(window.CSS&&CSS.registerProperty))],
+        ["Local Font Access API",sc(()=>!!navigator.fonts)],
+        ["Window.ai (Gemini Nano)",sc(()=>!!window.ai)],
+        ["Translation API",sc(()=>!!window.translation)],
+        ["MediaSession API",sc(()=>!!navigator.mediaSession)],
+        ["Picture-in-Picture (video)",sc(()=>!!document.pictureInPictureEnabled)],
+        ["TaskController",sc(()=>!!window.TaskController)],
+        ["URLPattern",sc(()=>!!window.URLPattern)],
+        ["Presentation API",sc(()=>!!window.PresentationRequest)],
+        ["Remote Playback API",sc(()=>!!window.RemotePlayback)],
+        ["Screen Orientation lock",sc(()=>!!(screen.orientation&&screen.orientation.lock))],
+        ["fetchpriority (Priority Hints)",sc(()=>"fetchPriority" in new Image())],
+        ["loading=lazy (img)",sc(()=>"loading" in new Image())],
+        ["decoding=async (img)",sc(()=>"decoding" in new Image())],
+        ["<dialog> element",sc(()=>!!window.HTMLDialogElement)],
+        ["<details> name grouping",sc(()=>"name" in document.createElement("details"))],
+        ["Popover attribute",sc(()=>"popover" in HTMLElement.prototype)],
+        ["Declarative Shadow DOM (shadowrootmode)",sc(()=>"shadowRootMode" in HTMLTemplateElement.prototype)],
+        ["adoptedStyleSheets",sc(()=>!!document.adoptedStyleSheets)],
+        ["ElementInternals",sc(()=>!!HTMLElement.prototype.attachInternals)],
+        ["Highlight API",sc(()=>!!window.Highlight)],
+        ["CSS @scope",sc(()=>{try{return CSS.supports("@scope { :scope { color: red } }");}catch(e){return false;}})],
+        ["CSS selector(:has())",sc(()=>{try{return CSS.supports("selector(:has(div))");}catch(e){return false;}})],
+        ["CSS selector(:is())",sc(()=>{try{return CSS.supports("selector(:is(div))");}catch(e){return false;}})],
+        ["CSS selector(:where())",sc(()=>{try{return CSS.supports("selector(:where(div))");}catch(e){return false;}})],
+        ["CSS selector(:not() complex)",sc(()=>{try{return CSS.supports("selector(:not(div > span))");}catch(e){return false;}})],
+        ["ReportingObserver",sc(()=>!!window.ReportingObserver)],
+        ["LargestContentfulPaint entry",sc(()=>!!window.LargestContentfulPaint)],
+        ["LayoutShift entry",sc(()=>!!window.LayoutShift)],
+        ["PerformanceLongTaskTiming",sc(()=>!!window.PerformanceLongTaskTiming)],
+        ["Sanitizer API",sc(()=>!!window.Sanitizer)],
+        ["Trusted Types API",sc(()=>!!window.TrustedTypes)],
+        ["Web Locks API",sc(()=>!!navigator.locks)],
+        ["Periodic Background Sync",sc(()=>!!window.PeriodicSyncManager)],
+        ["Push API",sc(()=>!!window.PushManager)],
+        ["Notification API",sc(()=>!!window.Notification)],
+        ["Channel Messaging",sc(()=>!!window.MessageChannel)],
+        ["Shared Storage API",sc(()=>!!window.sharedStorage)],
+        ["Fenced Frames",sc(()=>!!window.HTMLFencedFrameElement)],
+        ["Topics API",sc(()=>!!document.browsingTopics)],
+        ["Private Aggregation",sc(()=>!!window.privateAggregation)],
+        ["Digital Goods API",sc(()=>!!window.getDigitalGoodsService)],
+        ["Web OTP API",sc(()=>!!(navigator.credentials&&window.OTPCredential))],
+        ["Device Memory API",sc(()=>"deviceMemory" in navigator)],
+        ["Network Info API",sc(()=>"connection" in navigator)],
+        ["Storage Manager",sc(()=>!!(navigator.storage&&navigator.storage.estimate))],
+    ];
+    for(const [name,val] of apis) row(name,val);
+    section("Performance");
+    if(window.performance&&window.performance.memory){
+        row("JS Heap Limit",Math.round(performance.memory.jsHeapSizeLimit/1048576)+" MB","");
+        row("JS Heap Used",Math.round(performance.memory.usedJSHeapSize/1048576)+" MB","");
+        row("JS Heap Total",Math.round(performance.memory.totalJSHeapSize/1048576)+" MB","");
+    }
+    row("High-res Timer",!!(window.performance&&window.performance.now));
+    row("Performance Observer",!!window.PerformanceObserver);
+    if(window.performance){
+        const nav=performance.getEntriesByType("navigation")[0];
+        if(nav){
+            row("Page Load Time",Math.round(nav.loadEventEnd-nav.startTime)+" ms","");
+            row("DNS Time",Math.round(nav.domainLookupEnd-nav.domainLookupStart)+" ms","");
+            row("TCP Connect Time",Math.round(nav.connectEnd-nav.connectStart)+" ms","");
+            row("TLS Time",nav.secureConnectionStart>0?Math.round(nav.connectEnd-nav.secureConnectionStart)+" ms":"N/A","");
+            row("TTFB",Math.round(nav.responseStart-nav.requestStart)+" ms","");
+            row("DOM Interactive",Math.round(nav.domInteractive-nav.startTime)+" ms","");
+            row("Transfer Size",nav.transferSize?Math.round(nav.transferSize/1024)+" KB":"0 (cached)","");
+            row("Next-gen HTTP",nav.nextHopProtocol||"Unknown","");
+        }
+        try{
+            const types=PerformanceObserver.supportedEntryTypes||[];
+            row("Perf Entry Types",types.join(", "),"");
+        }catch(e){}
+    }
+    section("Graphics");
+    try{
+        const cv=document.createElement("canvas");
+        const gl=cv.getContext("webgl")||cv.getContext("experimental-webgl");
+        row("WebGL",!!gl);
+        row("WebGL2",!!document.createElement("canvas").getContext("webgl2"));
+        if(gl){
+            const dbg=gl.getExtension("WEBGL_debug_renderer_info");
+            if(dbg){
+                row("GPU Vendor",gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL),"");
+                row("GPU Renderer",gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL),"");
+            }
+            row("WebGL Version",gl.getParameter(gl.VERSION),"");
+            row("GLSL Version",gl.getParameter(gl.SHADING_LANGUAGE_VERSION),"");
+            row("Extensions Count",gl.getSupportedExtensions().length,"");
+            row("Max Texture Size",gl.getParameter(gl.MAX_TEXTURE_SIZE)+"px","");
+            row("Max Viewport",gl.getParameter(gl.MAX_VIEWPORT_DIMS).join("x")+"px","");
+            row("Max Vertex Attribs",gl.getParameter(gl.MAX_VERTEX_ATTRIBS),"");
+            row("Max Vertex Uniforms",gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS),"");
+            row("Max Fragment Uniforms",gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS),"");
+            row("MSAA Samples",gl.getParameter(gl.SAMPLES),"");
+            row("Antialiasing",gl.getContextAttributes().antialias);
+            const aniso=gl.getExtension("EXT_texture_filter_anisotropic")||gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic");
+            if(aniso) row("Max Anisotropy",gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT),"");
+            row("OES_texture_float",!!gl.getExtension("OES_texture_float"));
+            row("OES_vertex_array_object",!!gl.getExtension("OES_vertex_array_object"));
+            row("EXT_disjoint_timer_query",!!gl.getExtension("EXT_disjoint_timer_query"));
+        }
+        const gl2=document.createElement("canvas").getContext("webgl2");
+        if(gl2){
+            row("WebGL2 Max Samples",gl2.getParameter(gl2.MAX_SAMPLES),"");
+            row("WebGL2 Max 3D Texture",gl2.getParameter(gl2.MAX_3D_TEXTURE_SIZE)+"px","");
+            row("WebGL2 Transform Feedback",!!gl2.createTransformFeedback());
+        }
+    }catch(e){row("WebGL","Unavailable");}
+    row("OffscreenCanvas",!!window.OffscreenCanvas);
+    row("WebGPU",!!navigator.gpu);
+    const gpuId=probeRow("GPU Adapter (WebGPU)");
+    if(navigator.gpu){
+        navigator.gpu.requestAdapter().then(a=>{
+            if(a) a.requestAdapterInfo().then(info=>resolve(gpuId,(info.vendor||"?")+"/"+( info.architecture||"?")+(info.device?" ("+info.device+")":""),"")).catch(()=>resolve(gpuId,"Available (info hidden)","t"));
+            else resolve(gpuId,"No adapter","w");
+        }).catch(()=>resolve(gpuId,"Error","f"));
+    }else resolve(gpuId,"WebGPU unavailable","f");
+    section("Fingerprinting");
+    try{
+        const cv=document.createElement("canvas");
+        cv.width=220;cv.height=60;
+        const ctx=cv.getContext("2d");
+        ctx.textBaseline="top";ctx.font="14px Arial";
+        ctx.fillStyle="#f60";ctx.fillRect(125,1,62,20);
+        ctx.fillStyle="#069";ctx.fillText("fingerprint \uD83D\uDC09",2,2);
+        ctx.fillStyle="rgba(102,204,0,0.7)";ctx.fillText("fingerprint \uD83D\uDC09",4,4);
+        ctx.strokeStyle="rgba(255,80,80,0.6)";ctx.beginPath();ctx.arc(60,30,18,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle="rgba(0,80,200,0.3)";ctx.fillRect(5,35,100,15);
+        row("Canvas Fingerprint",cv.toDataURL().slice(22,100),"");
+    }catch(e){}
+    const afpId=probeRow("Audio Fingerprint");
+    audioFingerprint().then(v=>resolve(afpId,v,""));
+    const webpId=probeRow("WebP Support");
+    const avifId=probeRow("AVIF Support");
+    const wp=new Image();wp.onload=wp.onerror=()=>resolve(webpId,wp.height===2);
+    wp.src="data:image/webp;base64,UklGRjoAAABXRUJQVlA4IC4AAACyAgCdASoCAAIALmk0mk0iIiIiIgBoSygABc6WWgAA/veff/0PP8bA//LwYAAA";
+    const av=new Image();av.onload=av.onerror=()=>resolve(avifId,av.height===2);
+av.src="data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAABcAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQAMAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAAB9tZGF0EgAKCBgABogQEDQgmgUI/ikSBf/kOhA=";
+    const ttsId=probeRow("TTS Voices");
+    if(window.speechSynthesis){
+        const loadV=()=>{const v=window.speechSynthesis.getVoices();if(v.length) resolve(ttsId,v.length,"");};
+        loadV();window.speechSynthesis.onvoiceschanged=loadV;
+        setTimeout(()=>{const c=window.speechSynthesis.getVoices().length;resolve(ttsId,c||"0","");},2500);
+    }else resolve(ttsId,"Unavailable","f");
+    const fCanvas=document.createElement("canvas");
+    const fCtx=fCanvas.getContext("2d");
+    fCtx.font="72px monospace";
+    const baseW=fCtx.measureText("mmmmmmmmmmlli").width;
+    const fontList=["Arial","Times New Roman","Courier New","Georgia","Verdana","Comic Sans MS","Impact","Trebuchet MS","Palatino","Garamond","Helvetica","Tahoma","Calibri","Segoe UI","Ubuntu","Roboto","Consolas","Lucida Console","Gill Sans","Optima","Futura","Myriad Pro","DIN","Fira Code","Source Code Pro","Noto Sans","Open Sans","Lato","Montserrat","Nunito","Raleway","Playfair Display","Merriweather","PT Sans","Oswald","Inconsolata","Hack","JetBrains Mono","SF Pro","SF Mono","Menlo","Monaco","Malgun Gothic","PingFang SC","Hiragino Sans","Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji"];
+    const detectedFonts=fontList.filter(f=>{fCtx.font="72px '"+f+"',monospace";return fCtx.measureText("mmmmmmmmmmlli").width!==baseW;});
+    row("Detected Fonts",detectedFonts.join(", ")||"None","");
+    row("Font Count",detectedFonts.length,"");
+    if(navigator.plugins&&navigator.plugins.length){
+        row("Plugins Count",navigator.plugins.length,"");
+        for(const p of navigator.plugins) subrow(p.name,(p.description||p.filename||"—").slice(0,80),"");
+    }else row("Plugins","None detected");
+    const devCountId=probeRow("Media Devices Count");
+    navigator.mediaDevices.enumerateDevices().then(devices=>{
+        resolve(devCountId,devices.length,"");
+        devices.forEach((d,i)=>subrow("Device "+(i+1),d.kind+" — "+(d.label||"Hidden"),""));
+    }).catch(()=>resolve(devCountId,"Unavailable","f"));
+    section("Network");
+    const ni=networkInfo();
+    row("Connection API",ni.hasConnectionAPI);
+    if(ni.hasConnectionAPI){
+        row("Effective Type",ni.effectiveType);
+        row("Connection Kind",ni.type);
+        row("Downlink",ni.downlink);
+        row("Downlink Max",ni.downlinkMax);
+        row("RTT",ni.rtt);
+        row("Save Data",ni.saveData);
+    }
+    row("Referrer",document.referrer||"None");
+    row("Protocol",location.protocol);
+    row("History Length",history.length);
+    section("DNS & IP Leak (WebRTC)");
+    row("WebRTC Available",typeof RTCPeerConnection!=="undefined");
+    const rtcSlots=[];
+    const leakId=probeRow("DNS Leak Risk");
+    if(typeof RTCPeerConnection!=="undefined"){
+        for(let i=0;i<6;i++) rtcSlots.push(probeRow("IP Candidate "+(i+1)));
+        getWebRTCIPs().then(ips=>{
+            if(ips.length){
+                ips.forEach((ip,i)=>{
+                    if(i>=rtcSlots.length) return;
+                    const isLocal=/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|127\.|fc|fd|fe80)/i.test(ip);
+                    const type=isLocal?"Local/Private":ip.includes(":")?"IPv6 Public":"IPv4 Public";
+                    resolve(rtcSlots[i],ip+" ["+type+"]",isLocal?"w":"f");
+                });
+                for(let i=ips.length;i<rtcSlots.length;i++) resolve(rtcSlots[i],"—","d");
+                const hasPublicV4=ips.some(ip=>!ip.includes(":")&&!/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.)/i.test(ip)&&ip!=="0.0.0.0");
+                resolve(leakId,hasPublicV4?"HIGH — Public IPv4 exposed":"Low (local/IPv6 only)",hasPublicV4?"f":"w");
+            }else{
+                rtcSlots.forEach(id=>resolve(id,"None gathered","w"));
+                resolve(leakId,"WebRTC possibly blocked","w");
+            }
+        });
+    }else{
+        rtcSlots.forEach(id=>resolve(id,"N/A",""));
+        resolve(leakId,"WebRTC unavailable","f");
+    }
+    section("Storage");
+    row("LocalStorage Available",!!window.localStorage);
+    row("LocalStorage Functional",testLocalStorage());
+    row("SessionStorage Available",!!window.sessionStorage);
+    row("SessionStorage Functional",testSessionStorage());
+    row("Cookie Functional",testCookies());
+    row("IndexedDB Available",!!window.indexedDB);
+    const idbId=probeRow("IndexedDB Functional");
+    testIndexedDB().then(v=>resolve(idbId,v));
+    row("CacheStorage Available",!!window.caches);
+    const cacheId=probeRow("CacheStorage Functional");
+    testCacheStorage().then(v=>resolve(cacheId,v));
+    row("Service Worker","serviceWorker" in navigator);
+    const quotaId=probeRow("Storage Quota");
+    const usedId=probeRow("Storage Used");
+    const privateId=probeRow("Private Mode (quota hint)");
+    if(navigator.storage) navigator.storage.estimate().then(est=>{
+        resolve(quotaId,Math.round(est.quota/1073741824*100)/100+" GB","");
+        resolve(usedId,Math.round(est.usage/1048576)+" MB","");
+        resolve(privateId,est.quota<120000000?"likely":"unlikely");
+    }).catch(()=>{[quotaId,usedId,privateId].forEach(id=>resolve(id,"Unavailable","f"));});
+    row("Storage Persistence API",!!navigator.storage?.persist);
+    section("Battery");
+    const batLvlId=probeRow("Battery Level");
+    const batChgId=probeRow("Charging");
+    const batChgTId=probeRow("Charging Time");
+    const batDisId=probeRow("Discharging Time");
+    if(navigator.getBattery){
+        navigator.getBattery().then(bat=>{
+            resolve(batLvlId,Math.floor(bat.level*100)+"%","");
+            resolve(batChgId,bat.charging);
+            resolve(batChgTId,bat.chargingTime===Infinity?"N/A":bat.chargingTime+"s","");
+            resolve(batDisId,bat.dischargingTime===Infinity?"N/A":bat.dischargingTime+"s","");
+        }).catch(()=>{[batLvlId,batChgId,batChgTId,batDisId].forEach(id=>resolve(id,"Unavailable","f"));});
+    }else{[batLvlId,batChgId,batChgTId,batDisId].forEach(id=>resolve(id,"Unavailable","f"));}
+    section("Network Request Probes");
+    const netProbes = [
+        ["Cloudflare Trace", "https://1.1.1.1/cdn-cgi/trace"],
+        ["Cloudflare DNS (DoH)", "https://cloudflare-dns.com/dns-query?name=example.com"],
+        ["Google DNS (DoH)", "https://dns.google/resolve?name=example.com"],
+        ["Cloudflare CDN (cdnjs)", "https://cdnjs.cloudflare.com/ajax/libs/purplecoat/1.0.0/purplecoat.min.js"],
+        ["Google CDN", "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"],
+        ["jsDelivr", "https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.global.prod.js"],
+        ["unpkg", "https://unpkg.com/react@18.2.0/umd/react.production.min.js"],
+        ["Microsoft Azure CDN", "https://ajax.aspnetcdn.com/ajax/jQuery/jquery-3.7.1.min.js"],
+        ["BunnyCDN", "https://bunny.net/favicon.ico"],
+        ["Firebase (gstatic)", "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"],
+        ["Supabase CDN", "https://cdn.supabase.com/js/v2/index.js"],
+        ["AWS CloudFront", "https://d1.awsstatic.com/marketplace/sc-logo-sm.png"],
+        ["Cloudinary", "https://res.cloudinary.com/demo/image/upload/sample.jpg"],
+        ["Google Analytics", "https://www.google-analytics.com/analytics.js"],
+        ["Google Tag Manager", "https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXX"],
+        ["Mixpanel", "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"],
+        ["Amplitude", "https://cdn.amplitude.com/libs/amplitude-8.21.4-min.gz.js"],
+        ["Stripe JS", "https://js.stripe.com/v3/"],
+        ["Sentry", "https://browser.sentry-cdn.com/7.93.0/bundle.min.js"],
+        ["Intercom", "https://widget.intercom.io/widget/XXXXXX"]
+    ];
+    const netIds=netProbes.map(([name])=>probeRow(name));
+    netProbes.forEach(([,url],i)=>{
+        probeURL(url).then(r=>resolve(netIds[i],r,r==="Reachable"?"t":r==="Timeout"?"w":"f"));
+    });
+    section("Ad Blocker Detection");
+    const adResults=[];
+    const domId=probeRow("DOM Element Hiding");
+    const el=document.createElement("div");
+    el.setAttribute("class","ad ads adsbox ad-placement carbon-ad adsense adsbygoogle");
+    el.setAttribute("id","ad-banner");
+    el.style.cssText="position:absolute;top:-9999px;left:-9999px;width:10px;height:10px;";
+    document.body.appendChild(el);
+    await new Promise(r=>setTimeout(r,200));
+    const domHid=el.offsetHeight===0||el.offsetParent===null||getComputedStyle(el).display==="none"||getComputedStyle(el).visibility==="hidden"||getComputedStyle(el).opacity==="0";
+    document.body.removeChild(el);
+    resolve(domId,domHid?"Blocked":"Passed",domHid?"f":"t");
+    adResults.push(domHid);
+    const baitNames=["ad-container","adzone","sponsored-banner","banner-ad","rectangle-ad","dfp-ad-slot","gpt-ad","ad-unit","leaderboard-ad","sticky-ad"];
+    const baitIds=baitNames.map(bid=>probeRow("Bait #"+bid));
+    for(let i=0;i<baitNames.length;i++){
+        const be=document.createElement("div");
+        be.id=baitNames[i];be.className="adsbox ad";
+        be.style.cssText="position:absolute;top:-9999px;width:1px;height:1px;";
+        document.body.appendChild(be);
+        await new Promise(r=>setTimeout(r,40));
+        const bh=be.offsetHeight===0;
+        document.body.removeChild(be);
+        resolve(baitIds[i],bh?"Blocked":"Passed",bh?"f":"t");
+        adResults.push(bh);
+    }
+    const adFetchList = [
+        { url: "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", name: "Google AdSense" },
+        { url: "https://securepubads.g.doubleclick.net/tag/js/gpt.js", name: "DoubleClick GPT" },
+        { url: "https://www.googletagservices.com/tag/js/gpt.js", name: "Google Tag Services" },
+        { url: "https://pagead2.googlesyndication.com/pagead/css/adblock.css", name: "AdSense CSS" },
+        { url: "https://connect.facebook.net/en_US/fbevents.js", name: "Facebook Pixel" },
+        { url: "https://static.ads-twitter.com/uwt.js", name: "X (Twitter) Ads" },
+        { url: "https://analytics.tiktok.com/i18n/pixel/sdk.js", name: "TikTok Pixel" },
+        { url: "https://snap.licdn.com/li.lms-analytics/insight.min.js", name: "LinkedIn Insight" },
+        { url: "https://cdn.taboola.com/libtrc/unip/loader.js", name: "Taboola" },
+        { url: "https://widgets.outbrain.com/outbrain.js", name: "Outbrain" },
+        { url: "https://static.criteo.net/js/ld/ld.js", name: "Criteo" },
+        { url: "https://s.amazon-adsystem.com/aax2/apstag.js", name: "Amazon Ads" },
+        { url: "https://z.moatads.com/moatad.js", name: "Moat Ads" },
+        { url: "https://pixel.advertising.com/favicon.ico", name: "Advertising.com" }
+    ];
+    const adFetchIds=adFetchList.map(({name})=>probeRow(name));
+    const adFetchPromises=adFetchList.map(async({url},i)=>{
+        let blocked=false;
+        try{
+            const ctrl=new AbortController();
+            const t=setTimeout(()=>ctrl.abort(),4000);
+            await fetch(url,{method:"HEAD",mode:"no-cors",signal:ctrl.signal,cache:"no-store"});
+            clearTimeout(t);
+        }catch(e){blocked=true;}
+        resolve(adFetchIds[i],blocked?"Blocked":"Passed",blocked?"f":"t");
+        adResults.push(blocked);
+        return blocked;
+    });
+    const scriptId=probeRow("Script Inject (AdSense)");
+    const scriptProm=new Promise(res=>{
+        const s=document.createElement("script");
+        s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?_t="+Date.now();
+        s.onload=()=>res(false);s.onerror=()=>res(true);
+        document.head.appendChild(s);
+        setTimeout(()=>res(true),4000);
+    });
+    const imgTests=[
+        {src:"https://ad.doubleclick.net/favicon.ico",name:"DoubleClick Pixel"},
+        {src:"https://googleads.g.doubleclick.net/pagead/viewthroughconversion/favicon.ico",name:"Google Ads Pixel"},
+        {src:"https://www.google-analytics.com/collect?v=1&t=event&tid=UA-00000-1&cid=1",name:"GA Collect Pixel"},
+        {src:"https://www.facebook.com/tr?id=1&ev=PageView",name:"Facebook Track Pixel"},
+    ];
+    const imgIds=imgTests.map(({name})=>probeRow(name));
+    const imgPromises=imgTests.map(({src},i)=>new Promise(res=>{
+        const img=new Image();
+        const finish=(bl)=>{resolve(imgIds[i],bl?"Blocked":"Passed",bl?"f":"t");adResults.push(bl);res(bl);};
+        img.onload=()=>finish(false);img.onerror=()=>finish(true);
+        img.src=src+(src.includes("?")?"&":"?")+"_t="+Date.now();
+        setTimeout(()=>finish(true),3000);
+    }));
+    const globalId=probeRow("adsbygoogle global");
+    const verdictId=probeRow("Ad Blocker Verdict");
+    const scoreId=probeRow("Ad Blocker Score");
+    await Promise.all([
+        ...adFetchPromises,...imgPromises,
+        scriptProm.then(blocked=>{
+            resolve(scriptId,blocked?"Blocked":"Passed",blocked?"f":"t");
+            adResults.push(blocked);
+        })
+    ]);
+    const gMissing=typeof window.adsbygoogle==="undefined";
+    resolve(globalId,gMissing?"Blocked":"Passed",gMissing?"f":"t");
+    adResults.push(gMissing);
+    const blocked=adResults.filter(Boolean).length;
+    const total=adResults.length;
+    const score=Math.round((blocked/total)*100);
+    resolve(scoreId,blocked+"/"+total+" ("+score+"%)","");
+    let vtext,vcls;
+    if(score>=60){vtext="ACTIVE";vcls="f";}
+    else if(score>=30){vtext="Partial / DNS-level";vcls="w";}
+    else{vtext="Not detected";vcls="t";}
+    setTimeout(()=>resolve(verdictId,vtext,vcls,true),80);
+    section("Permissions");
+    const permNames=["geolocation","notifications","clipboard-read","clipboard-write","persistent-storage","midi","accelerometer","gyroscope","magnetometer","camera","microphone","ambient-light-sensor","background-sync","screen-wake-lock","storage-access","window-management","local-fonts","display-capture"];
+    const permIds=permNames.map(p=>probeRow(p));
+    permNames.forEach((p,i)=>{
+        navigator.permissions.query({name:p}).then(r=>resolve(permIds[i],r.state)).catch(()=>resolve(permIds[i],"Unavailable","w"));
+    });
+    section("Sensor Access");
+    const doId=probeRow("DeviceOrientation");
+    const dmId=probeRow("DeviceMotion");
+    if(window.DeviceOrientationEvent){
+        try{const rp=DeviceOrientationEvent.requestPermission;if(typeof rp==="function") rp().then(s=>resolve(doId,s)).catch(()=>resolve(doId,"Denied","f"));else resolve(doId,"Available (no prompt)","t");}catch(e){resolve(doId,"Unavailable","f");}
+    }else resolve(doId,"Unavailable","f");
+    if(window.DeviceMotionEvent){
+        try{const rp=DeviceMotionEvent.requestPermission;if(typeof rp==="function") rp().then(s=>resolve(dmId,s)).catch(()=>resolve(dmId,"Denied","f"));else resolve(dmId,"Available (no prompt)","t");}catch(e){resolve(dmId,"Unavailable","f");}
+    }else resolve(dmId,"Unavailable","f");
+    const sensorList=[["Accelerometer",window.Accelerometer],["Gyroscope",window.Gyroscope],["AmbientLightSensor",window.AmbientLightSensor],["Magnetometer",window.Magnetometer],["LinearAccelerationSensor",window.LinearAccelerationSensor],["GravitySensor",window.GravitySensor],["AbsoluteOrientationSensor",window.AbsoluteOrientationSensor],["RelativeOrientationSensor",window.RelativeOrientationSensor]];
+    for(const [name,Cls] of sensorList){
+        if(Cls){try{new Cls();row(name,"Available","t");}catch(e){row(name,e.name||"Error","f");}}
+    }
+    section("Media & Peripheral Access");
+    const camId=probeRow("Camera / Microphone");
+    navigator.mediaDevices.getUserMedia({video:true,audio:true})
+        .then(stream=>{resolve(camId,"Granted","t");stream.getTracks().forEach(t=>{subrow("Track",t.kind+" — "+t.label,"");t.stop();});})
+        .catch(err=>resolve(camId,err.message,"f"));
+    const midiId=probeRow("MIDI Access");
+    if(navigator.requestMIDIAccess){
+        navigator.requestMIDIAccess().then(midi=>resolve(midiId,"Inputs:"+midi.inputs.size+" Outputs:"+midi.outputs.size,"")).catch(()=>resolve(midiId,"Denied","f"));
+    }else resolve(midiId,"Unavailable","f");
+    const vrId=probeRow("VR (immersive-vr)");
+    const arId=probeRow("AR (immersive-ar)");
+    if(navigator.xr){
+        navigator.xr.isSessionSupported("immersive-vr").then(v=>resolve(vrId,v)).catch(()=>resolve(vrId,"Unavailable","f"));
+        navigator.xr.isSessionSupported("immersive-ar").then(v=>resolve(arId,v)).catch(()=>resolve(arId,"Unavailable","f"));
+    }else{resolve(vrId,"Unavailable","f");resolve(arId,"Unavailable","f");}
+    const notifId=probeRow("Notification Permission");
+    Notification.requestPermission().then(p=>resolve(notifId,p)).catch(()=>resolve(notifId,"Unavailable","f"));
+    const clipId=probeRow("Clipboard Read");
+    navigator.clipboard.readText().then(t=>resolve(clipId,t?"Has content":"Empty","")).catch(e=>resolve(clipId,e.message,"w"));
+    section("Geolocation");
+    const gpsId=probeRow("GPS Coordinates");
+    const gpsAltId=probeRow("GPS Altitude");
+    const gpsSpdId=probeRow("GPS Speed");
+    const gpsHdgId=probeRow("GPS Heading");
+    navigator.geolocation.getCurrentPosition(
+        pos=>{
+            resolve(gpsId,pos.coords.latitude.toFixed(6)+", "+pos.coords.longitude.toFixed(6)+" (±"+Math.round(pos.coords.accuracy)+"m)","");
+            resolve(gpsAltId,pos.coords.altitude!==null?Math.round(pos.coords.altitude)+"m":"N/A","");
+            resolve(gpsSpdId,pos.coords.speed!==null?pos.coords.speed.toFixed(1)+" m/s":"N/A","");
+            resolve(gpsHdgId,pos.coords.heading!==null?pos.coords.heading.toFixed(1)+"°":"N/A","");
+        },
+        err=>{resolve(gpsId,err.message,"f");[gpsAltId,gpsSpdId,gpsHdgId].forEach(id=>resolve(id,"N/A",""));}
+    );
+}
+run();
+</script>
+</body>
+</html>
